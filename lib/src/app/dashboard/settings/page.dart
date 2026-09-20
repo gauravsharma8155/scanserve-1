@@ -251,12 +251,36 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _scanBluetoothPrinters() async {
     final btService = ref.read(bluetoothPrinterServiceProvider);
+
+    // 1. Request Bluetooth runtime permissions (critical on Android 12+)
+    final hasPermission = await btService.requestBluetoothPermissions();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Nearby devices & Bluetooth permission is required to detect thermal printers.',
+            ),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Settings',
+              textColor: Colors.white,
+              onPressed: () => btService.openSettings(),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 2. Check if Bluetooth is turned ON
     final enabled = await btService.isBluetoothEnabled();
     if (!enabled) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Please enable Bluetooth on your phone/device first.'),
+            content: Text('Please turn on Bluetooth on your device first.'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -270,12 +294,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       if (mounted) {
         setState(() => _pairedBtDevices = devices);
         if (devices.isEmpty) {
+          _showPairingHelpDialog();
+        } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'No paired Bluetooth devices found. Please pair your CPENSUS printer in Android Bluetooth Settings first.',
-              ),
-              backgroundColor: Colors.blueGrey,
+            SnackBar(
+              content: Text('Found ${devices.length} paired Bluetooth device(s).'),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(seconds: 2),
             ),
           );
         }
@@ -292,6 +317,91 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     } finally {
       if (mounted) setState(() => _isBtScanning = false);
     }
+  }
+
+  void _showPairingHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+        title: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8.r),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(8.r),
+              ),
+              child: Icon(LucideIcons.printer, color: const Color(0xFF2563EB), size: 20.sp),
+            ),
+            SizedBox(width: 10.w),
+            const Expanded(
+              child: Text(
+                'How to Pair Your Printer',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Thermal printers must be paired in your phone\'s system Bluetooth settings first:',
+              style: TextStyle(fontSize: 13, color: Color(0xFF475569)),
+            ),
+            SizedBox(height: 12.h),
+            _buildHelpStep('1', 'Turn on your thermal printer (e.g. CPENSUS, POS-58).'),
+            _buildHelpStep('2', 'Open phone Settings > Bluetooth / Connected devices.'),
+            _buildHelpStep('3', 'Tap "Pair new device" and select your printer.'),
+            _buildHelpStep('4', 'Enter PIN if prompted (usually 0000 or 1234).'),
+            _buildHelpStep('5', 'Return to ScanServe and tap "Scan Bluetooth".'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Got it', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHelpStep(String number, String text) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.h),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 20.r,
+            height: 20.r,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              number,
+              style: TextStyle(
+                fontSize: 11.sp,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF2563EB),
+              ),
+            ),
+          ),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 12.sp, color: const Color(0xFF1E293B)),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _connectBluetoothPrinter(BluetoothInfo device) async {
@@ -1178,9 +1288,27 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       Icon(LucideIcons.bluetoothSearching, color: const Color(0xFF94A3B8), size: 20.sp),
                       SizedBox(width: 12.w),
                       Expanded(
-                        child: Text(
-                          'No Bluetooth thermal printer selected. Tap "Scan Bluetooth" to discover paired printers (e.g. CPENSUS).',
-                          style: TextStyle(fontSize: 12.sp, color: const Color(0xFF64748B)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'No Bluetooth thermal printer selected. Tap "Scan Bluetooth" to discover paired printers (e.g. CPENSUS).',
+                              style: TextStyle(fontSize: 12.sp, color: const Color(0xFF64748B)),
+                            ),
+                            SizedBox(height: 4.h),
+                            GestureDetector(
+                              onTap: _showPairingHelpDialog,
+                              child: Text(
+                                'First time setting up? Tap for pairing guide',
+                                style: TextStyle(
+                                  fontSize: 11.sp,
+                                  color: const Color(0xFF2563EB),
+                                  fontWeight: FontWeight.w600,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],

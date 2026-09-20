@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>ScanServe requires Bluetooth access to connect and print receipts to thermal printers.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>ScanServe requires Bluetooth access to interact with wireless thermal printers.</string>
 </dict>
 </plist>

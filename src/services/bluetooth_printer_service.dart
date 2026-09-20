@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -9,10 +11,78 @@ const String _prefBtName = 'bt_printer_name';
 const String _prefBtPaperSize = 'bt_printer_paper_size'; // '58' or '80'
 
 class BluetoothPrinterService {
+  /// Request necessary Bluetooth runtime permissions on Android and iOS
+  Future<bool> requestBluetoothPermissions() async {
+    if (kIsWeb) return true;
+
+    try {
+      if (Platform.isAndroid) {
+        // Request Bluetooth permissions for Android 12+ (API 31+)
+        final statuses = await [
+          Permission.bluetoothScan,
+          Permission.bluetoothConnect,
+        ].request();
+
+        final connectGranted = statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+        final scanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? false;
+
+        if (connectGranted || scanGranted) {
+          return true;
+        }
+
+        // Check if plugin native status is granted
+        final pluginGranted = await PrintBluetoothThermal.isPermissionBluetoothGranted
+            .timeout(const Duration(seconds: 2), onTimeout: () => false);
+        if (pluginGranted) return true;
+
+        // Fallback for Android <= 11 (requires location permission for Bluetooth)
+        final locStatus = await Permission.location.request();
+        return locStatus.isGranted;
+      } else if (Platform.isIOS) {
+        final status = await Permission.bluetooth.request();
+        return status.isGranted;
+      }
+      return true;
+    } catch (e) {
+      debugPrint('⚠️ Error requesting Bluetooth permissions: $e');
+      return false;
+    }
+  }
+
+  /// Check whether Bluetooth permissions have been granted
+  Future<bool> checkPermissionsGranted() async {
+    if (kIsWeb) return true;
+
+    try {
+      if (Platform.isAndroid) {
+        final connectGranted = await Permission.bluetoothConnect.isGranted;
+        if (connectGranted) return true;
+
+        final pluginGranted = await PrintBluetoothThermal.isPermissionBluetoothGranted
+            .timeout(const Duration(seconds: 2), onTimeout: () => false);
+        if (pluginGranted) return true;
+
+        return await Permission.location.isGranted;
+      } else if (Platform.isIOS) {
+        return await Permission.bluetooth.isGranted;
+      }
+      return true;
+    } catch (e) {
+      debugPrint('⚠️ Error checking Bluetooth permissions: $e');
+      return false;
+    }
+  }
+
+  /// Open device app settings if permissions were permanently denied
+  Future<bool> openSettings() async {
+    return await openAppSettings();
+  }
+
   /// Check if Bluetooth is turned ON on the device
   Future<bool> isBluetoothEnabled() async {
     try {
-      return await PrintBluetoothThermal.bluetoothEnabled;
+      return await PrintBluetoothThermal.bluetoothEnabled
+          .timeout(const Duration(seconds: 4), onTimeout: () => false);
     } catch (e) {
       debugPrint('⚠️ Error checking bluetoothEnabled: $e');
       return false;
@@ -22,7 +92,8 @@ class BluetoothPrinterService {
   /// Check if a printer is actively connected
   Future<bool> isConnected() async {
     try {
-      return await PrintBluetoothThermal.connectionStatus;
+      return await PrintBluetoothThermal.connectionStatus
+          .timeout(const Duration(seconds: 4), onTimeout: () => false);
     } catch (e) {
       debugPrint('⚠️ Error checking connectionStatus: $e');
       return false;
@@ -32,7 +103,8 @@ class BluetoothPrinterService {
   /// Get list of paired Bluetooth devices
   Future<List<BluetoothInfo>> getPairedDevices() async {
     try {
-      return await PrintBluetoothThermal.pairedBluetooths;
+      return await PrintBluetoothThermal.pairedBluetooths
+          .timeout(const Duration(seconds: 5), onTimeout: () => []);
     } catch (e) {
       debugPrint('⚠️ Error getting pairedBluetooths: $e');
       return [];
@@ -44,12 +116,13 @@ class BluetoothPrinterService {
     try {
       final isConnectedAlready = await isConnected();
       if (isConnectedAlready) {
-        await PrintBluetoothThermal.disconnect;
+        await PrintBluetoothThermal.disconnect
+            .timeout(const Duration(seconds: 3), onTimeout: () => false);
       }
 
       final result = await PrintBluetoothThermal.connect(
         macPrinterAddress: macAddress,
-      );
+      ).timeout(const Duration(seconds: 7), onTimeout: () => false);
 
       if (result) {
         final prefs = await SharedPreferences.getInstance();
@@ -72,7 +145,8 @@ class BluetoothPrinterService {
   /// Disconnect from current printer
   Future<bool> disconnect() async {
     try {
-      return await PrintBluetoothThermal.disconnect;
+      return await PrintBluetoothThermal.disconnect
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
     } catch (e) {
       debugPrint('⚠️ Error disconnecting printer: $e');
       return false;
@@ -487,7 +561,8 @@ class BluetoothPrinterService {
       paperSize: paperSize,
     );
 
-    final success = await PrintBluetoothThermal.writeBytes(bytes);
+    final success = await PrintBluetoothThermal.writeBytes(bytes)
+        .timeout(const Duration(seconds: 10), onTimeout: () => false);
     if (success) {
       debugPrint('🖨️ Direct Bluetooth KOT printed successfully for order $orderId!');
     } else {
@@ -512,7 +587,8 @@ class BluetoothPrinterService {
       paperSize: paperSize,
     );
 
-    return await PrintBluetoothThermal.writeBytes(bytes);
+    return await PrintBluetoothThermal.writeBytes(bytes)
+        .timeout(const Duration(seconds: 10), onTimeout: () => false);
   }
 
   /// Print a test receipt to verify connection and paper alignment
@@ -563,7 +639,8 @@ class BluetoothPrinterService {
     bytes.addAll(generator.feed(2));
     bytes.addAll(generator.cut());
 
-    return await PrintBluetoothThermal.writeBytes(bytes);
+    return await PrintBluetoothThermal.writeBytes(bytes)
+        .timeout(const Duration(seconds: 10), onTimeout: () => false);
   }
 }
 
